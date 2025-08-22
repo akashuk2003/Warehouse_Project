@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
+import React, { useState, useEffect, useCallback, createContext, useContext, useRef } from 'react';
+
 const styles = `
   /* --- Global & App Layout --- */
   body {
@@ -270,13 +271,15 @@ const useToast = () => useContext(ToastContext);
 
 const ToastProvider = ({ children }) => {
   const [toasts, setToasts] = useState([]);
-  const addToast = (message, type = 'success') => {
+  
+  const addToast = useCallback((message, type = 'success') => {
     const id = Date.now();
     setToasts(prev => [...prev, { id, message, type }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
     }, 3000);
-  };
+  }, []); 
+
   return (
     <ToastContext.Provider value={addToast}>
       {children}
@@ -347,6 +350,9 @@ function WarehouseApp() {
   const [modalType, setModalType] = useState(null);
   const addToast = useToast();
 
+  const stateRef = useRef();
+  stateRef.current = { currentView, selectedItem };
+
   useEffect(() => {
     const styleElement = document.createElement('style');
     styleElement.innerHTML = styles;
@@ -369,31 +375,42 @@ function WarehouseApp() {
       
       const totalStock = itemsData.reduce((sum, item) => sum + item.total_quantity, 0);
       setStats({ totalItems: itemsData.length, totalStock });
-      return true; // Indicate success
+      return true;
     } catch (err) {
       if (!isUpdate) {
         setError('Failed to fetch initial data. Is your Django server running?');
-        addToast('Could not connect to the server.', 'error');
       }
-      return false; // Indicate failure
+      return false;
     } finally {
       if (!isUpdate) setLoading(false);
     }
-  }, [addToast]);
+  }, []);
+
+  const fetchMovements = useCallback(async (itemId, isUpdate = false) => {
+    if (!isUpdate) setLoading(true);
+    try {
+      const movementData = await api.get(`/movements/?item=${itemId}`);
+      setMovements(movementData);
+    } catch (err)
+ {
+      setError('Failed to fetch movement history.');
+    } finally {
+      if (!isUpdate) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let connectWebSocket;
-    
-    // Initial data fetch
-    fetchData();
+    let socket = null;
+    let reconnectTimeout = null;
+    let hasShownInitialError = false;
 
-    // --- WEBSOCKET CONNECTION ---
     const connect = () => {
-      const socket = new WebSocket(WEBSOCKET_URL);
+      socket = new WebSocket(WEBSOCKET_URL);
 
       socket.onopen = () => {
         console.log('WebSocket connected');
         addToast('Real-time connection established!', 'success');
+        hasShownInitialError = false;
       };
 
       socket.onmessage = (event) => {
@@ -401,6 +418,7 @@ function WarehouseApp() {
         if (data.type === 'inventory_update') {
           addToast('Inventory updated!', 'success');
           fetchData(true);
+          const { currentView, selectedItem } = stateRef.current;
           if (currentView === 'detail' && selectedItem) {
             fetchMovements(selectedItem.id, true);
           }
@@ -408,42 +426,33 @@ function WarehouseApp() {
       };
 
       socket.onclose = () => {
-        console.log('WebSocket disconnected. Attempting to reconnect in 5 seconds...');
-        setTimeout(connect, 5000);
+        console.log('WebSocket disconnected. Attempting to reconnect...');
+        clearTimeout(reconnectTimeout); 
+        reconnectTimeout = setTimeout(connect, 5000);
       };
 
       socket.onerror = (error) => {
         console.error('WebSocket error:', error);
-        socket.close(); 
-      };
-
-      connectWebSocket = () => {
+        if (!hasShownInitialError) {
+          addToast('Could not establish real-time connection.', 'error');
+          hasShownInitialError = true;
+        }
         socket.close();
       };
     };
 
+    fetchData();
     connect();
 
     return () => {
-      if (connectWebSocket) {
-        connectWebSocket();
+      clearTimeout(reconnectTimeout);
+      if (socket) {
+        socket.onclose = null; 
+        socket.close();
       }
     };
-  }, [fetchData, currentView, selectedItem, addToast]);
-
-
-  const fetchMovements = async (itemId, isUpdate = false) => {
-    if (!isUpdate) setLoading(true);
-    try {
-      setError(null);
-      const movementData = await api.get(`/movements/?item=${itemId}`);
-      setMovements(movementData);
-    } catch (err) {
-      setError('Failed to fetch movement history.');
-    } finally {
-      if (!isUpdate) setLoading(false);
-    }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchData, fetchMovements]);
 
   const handleViewItemDetail = (item) => {
     setSelectedItem(item);

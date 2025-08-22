@@ -90,9 +90,5 @@ class StockMovementListCreateView(generics.ListCreateAPIView):
 
 
 class StockMovementDetailView(generics.RetrieveAPIView):
-    """
-    A read-only endpoint for viewing a single stock movement.
-    Generally, historical movements should not be updated or deleted.
-    """
     queryset = StockMovement.objects.all()
     serializer_class = StockMovementSerializer

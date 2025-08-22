@@ -1,6 +1,4 @@
 import React, { useState, useEffect, useCallback, createContext, useContext } from 'react';
-
-// --- CSS Styles ---
 const styles = `
   /* --- Global & App Layout --- */
   body {
@@ -240,11 +238,9 @@ const styles = `
   }
 `;
 
-// --- Configuration ---
-const API_BASE_URL = 'http://127.0.0.1:8000/api'; 
-const WEBSOCKET_URL = 'ws://127.0.0.1:8000/ws/inventory/';
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://127.0.0.1:8000/api';
+const WEBSOCKET_URL = process.env.REACT_APP_WEBSOCKET_URL || 'ws://127.0.0.1:8000/ws/inventory/';
 
-// --- Helper Functions & Hooks ---
 const api = {
   get: (endpoint) => fetch(`${API_BASE_URL}${endpoint}`).then(res => res.ok ? res.json() : Promise.reject(res)),
   post: (endpoint, data) => fetch(`${API_BASE_URL}${endpoint}`, {
@@ -269,7 +265,6 @@ const handleApiError = (err) => {
   return 'An unknown error occurred.';
 };
 
-// --- Toast Notification System ---
 const ToastContext = createContext();
 const useToast = () => useContext(ToastContext);
 
@@ -296,7 +291,6 @@ const ToastProvider = ({ children }) => {
   );
 };
 
-// --- Sorting Hook ---
 const useSortableData = (items, config = null) => {
   const [sortConfig, setSortConfig] = useState(config);
 
@@ -328,12 +322,10 @@ const useSortableData = (items, config = null) => {
 };
 
 
-// --- SVG Icons ---
 const ArrowUpIcon = () => ( <svg xmlns="http://www.w3.org/2000/svg" className="icon icon-in" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.707-10.293a1 1 0 00-1.414-1.414l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414l-3-3z" clipRule="evenodd" /></svg> );
 const ArrowDownIcon = () => ( <svg xmlns="http://www.w3.org/2000/svg" className="icon icon-out" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.707-7.707a1 1 0 001.414 1.414l3-3a1 1 0 00-1.414-1.414L11 10.586V7a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3z" clipRule="evenodd" /></svg> );
 const ArrowRightIcon = () => ( <svg xmlns="http://www.w3.org/2000/svg" className="icon icon-move" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" /></svg> );
 
-// --- Main App Component ---
 export default function App() {
   return (
     <ToastProvider>
@@ -377,44 +369,79 @@ function WarehouseApp() {
       
       const totalStock = itemsData.reduce((sum, item) => sum + item.total_quantity, 0);
       setStats({ totalItems: itemsData.length, totalStock });
+      return true; // Indicate success
     } catch (err) {
-      setError('Failed to fetch initial data. Is your Django server running?');
-      addToast('Could not fetch data from server.', 'error');
+      if (!isUpdate) {
+        setError('Failed to fetch initial data. Is your Django server running?');
+        addToast('Could not connect to the server.', 'error');
+      }
+      return false; // Indicate failure
     } finally {
       if (!isUpdate) setLoading(false);
     }
   }, [addToast]);
 
   useEffect(() => {
+    let connectWebSocket;
+    
+    // Initial data fetch
     fetchData();
-    const socket = new WebSocket(WEBSOCKET_URL);
-    socket.onopen = () => console.log('WebSocket connected');
-    socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'inventory_update') {
-        addToast('Inventory updated!', 'success');
-        fetchData(true);
-        if (currentView === 'detail' && selectedItem) {
-          fetchMovements(selectedItem.id);
+
+    // --- WEBSOCKET CONNECTION ---
+    const connect = () => {
+      const socket = new WebSocket(WEBSOCKET_URL);
+
+      socket.onopen = () => {
+        console.log('WebSocket connected');
+        addToast('Real-time connection established!', 'success');
+      };
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'inventory_update') {
+          addToast('Inventory updated!', 'success');
+          fetchData(true);
+          if (currentView === 'detail' && selectedItem) {
+            fetchMovements(selectedItem.id, true);
+          }
         }
+      };
+
+      socket.onclose = () => {
+        console.log('WebSocket disconnected. Attempting to reconnect in 5 seconds...');
+        setTimeout(connect, 5000);
+      };
+
+      socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        socket.close(); 
+      };
+
+      connectWebSocket = () => {
+        socket.close();
+      };
+    };
+
+    connect();
+
+    return () => {
+      if (connectWebSocket) {
+        connectWebSocket();
       }
     };
-    socket.onclose = () => console.log('WebSocket disconnected.');
-    socket.onerror = (error) => console.error('WebSocket error:', error);
-    return () => socket.close();
   }, [fetchData, currentView, selectedItem, addToast]);
 
 
-  const fetchMovements = async (itemId) => {
+  const fetchMovements = async (itemId, isUpdate = false) => {
+    if (!isUpdate) setLoading(true);
     try {
-      setLoading(true);
       setError(null);
       const movementData = await api.get(`/movements/?item=${itemId}`);
       setMovements(movementData);
     } catch (err) {
       setError('Failed to fetch movement history.');
     } finally {
-      setLoading(false);
+      if (!isUpdate) setLoading(false);
     }
   };
 
@@ -432,9 +459,9 @@ function WarehouseApp() {
 
   const handleSave = () => {
     setModalType(null);
-    fetchData(); 
+    fetchData(true); 
     if (selectedItem) {
-      fetchMovements(selectedItem.id);
+      fetchMovements(selectedItem.id, true);
     }
   };
 
@@ -474,7 +501,6 @@ function WarehouseApp() {
   );
 }
 
-// --- Components ---
 
 function Header({ onNavigate, onOpenModal }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);

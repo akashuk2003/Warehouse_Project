@@ -14,12 +14,13 @@ This system tracks the position and quantity of all items in a warehouse. It sup
 
 # Quick Setup
 
-Follow these steps to get the application running locally. You will need two separate terminals.
+Follow these steps to get the application running locally, two separate terminals are needed
 
 # Backend (Django) - Terminal 1
 
 1.  # Clone the Repository:
-    git clone <repository-url>
+    git clone https://github.com/akashuk2003/Warehouse_Project
+    change from `main` branch to `dev`(for local running)
     cd warehouse
 
 2.  ## Create and Activate a Virtual Environment:

@@ -25,11 +25,6 @@ class Item(models.Model):
         return f"{self.name} ({self.sku})"
     
     def update_total_quantity(self):
-        """
-        Recalculates total quantity from the Inventory table.
-        This is the single source of truth for an item's total stock.
-        """
-        # Lock the related inventory rows to prevent race conditions during calculation
         inventories = self.inventory_set.select_for_update().all()
         total = inventories.aggregate(total=Sum('quantity'))['total'] or 0
         

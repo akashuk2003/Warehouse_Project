@@ -24,7 +24,7 @@ Follow these steps to get the application running locally. Two separate terminal
 
 1.  **Clone the Repository:**
     ```bash
-    git clone [https://github.com/akashuk2003/Warehouse_Project]
+    git clone https://github.com/akashuk2003/Warehouse_Project
     ```
     * Change from the `main` branch to `dev` (for local running).
     * `cd warehouse`
